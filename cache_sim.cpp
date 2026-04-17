@@ -1,45 +1,198 @@
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <vector>
+#include<iostream>
+#include<fstream>
+#include<string>
 
 using namespace std;
 
-// A cache line represents one spot in the cache.
-// valid = tells if something has been stored there yet
-// tag = used to identify which memory address is stored
-struct CacheLine {
-    bool valid;
-    int tag;
+// One cache entry represents one line in cache memory
+class Entry {
+public:
+    Entry() {
+        // Start with an empty line
+        valid = false;
+        tag = 0;
+        ref = 0;
+    }
+
+    ~Entry() {
+    }
+
+    // Print entry contents if needed
+    void display(ofstream& outfile) {
+        outfile << valid << " " << tag << " " << ref;
+    }
+
+    void set_tag(int _tag) { tag = _tag; }
+    int get_tag() { return tag; }
+
+    void set_valid(bool _valid) { valid = _valid; }
+    bool get_valid() { return valid; }
+
+    void set_ref(int _ref) { ref = _ref; }
+    int get_ref() { return ref; }
+
+private:
+    bool valid;     // tells if this line contains data
+    unsigned tag;   // used to identify stored address
+    int ref;        // used for replacement tracking
+};
+
+// Cache class controls all cache operations
+class Cache {
+public:
+    Cache(int _num_entries, int _assoc) {
+        assoc = _assoc;
+        num_entries = _num_entries;
+
+        // Number of sets = total lines / lines per set
+        num_sets = num_entries / assoc;
+
+        // Build 2D dynamic array
+        // rows = ways
+        // columns = sets
+        entries = new Entry*[assoc];
+
+        for (int i = 0; i < assoc; i++) {
+            entries[i] = new Entry[num_sets];
+        }
+    }
+
+    ~Cache() {
+        // Free memory when program ends
+        for (int i = 0; i < assoc; i++) {
+            delete[] entries[i];
+        }
+
+        delete[] entries;
+    }
+
+    // Optional function to print cache contents
+    void display(ofstream& outfile) {
+        for (int i = 0; i < assoc; i++) {
+            for (int j = 0; j < num_sets; j++) {
+                outfile << "Way " << i
+                        << ", Set " << j << ": ";
+                entries[i][j].display(outfile);
+                outfile << endl;
+            }
+        }
+    }
+
+    // Finds which set an address belongs to
+    int get_index(unsigned long addr) {
+        return addr % num_sets;
+    }
+
+    // Finds the tag for an address
+    int get_tag(unsigned long addr) {
+        return addr / num_sets;
+    }
+
+    // Rebuild original address from tag + set index
+    unsigned long retrieve_addr(int way, int index) {
+        return (entries[way][index].get_tag() * num_sets) + index;
+    }
+
+    // Checks if address already exists in cache
+    bool hit(ofstream& outfile, unsigned long addr) {
+        int index = get_index(addr);
+        int tag_val = get_tag(addr);
+
+        // Search every way in this set
+        for (int i = 0; i < assoc; i++) {
+
+            // Valid line + matching tag = HIT
+            if (entries[i][index].get_valid() &&
+                entries[i][index].get_tag() == tag_val) {
+
+                outfile << addr << " : HIT" << endl;
+                return true;
+            }
+        }
+
+        // Address not found
+        outfile << addr << " : MISS" << endl;
+        return false;
+    }
+
+    // Adds new address after a miss
+    void update(ofstream& outfile, unsigned long addr) {
+        int index = get_index(addr);
+        int tag_val = get_tag(addr);
+
+        // First look for an empty line
+        for (int i = 0; i < assoc; i++) {
+
+            if (!entries[i][index].get_valid()) {
+
+                // Store new block here
+                entries[i][index].set_valid(true);
+                entries[i][index].set_tag(tag_val);
+                entries[i][index].set_ref(0);
+                return;
+            }
+        }
+
+        // If no empty space exists,
+        // replace the line with lowest ref value
+        int victim = 0;
+        int lowest_ref = entries[0][index].get_ref();
+
+        for (int i = 1; i < assoc; i++) {
+
+            if (entries[i][index].get_ref() < lowest_ref) {
+                lowest_ref = entries[i][index].get_ref();
+                victim = i;
+            }
+        }
+
+        // Replace chosen line
+        entries[victim][index].set_valid(true);
+        entries[victim][index].set_tag(tag_val);
+        entries[victim][index].set_ref(0);
+
+        // Increase age of all other lines
+        for (int i = 0; i < assoc; i++) {
+            if (i != victim) {
+                entries[i][index].set_ref(
+                    entries[i][index].get_ref() + 1
+                );
+            }
+        }
+    }
+
+private:
+    int assoc;              // lines per set
+    unsigned num_entries;  // total lines
+    int num_sets;          // total sets
+    Entry **entries;       // 2D cache array
 };
 
 int main(int argc, char* argv[]) {
 
-    // The program should be run like this:
-    // ./cache_sim <num_entries> <associativity> <input_file>
-    // Example:
+    // Program must be run like:
     // ./cache_sim 4 2 input0.txt
     if (argc != 4) {
-        cerr << "Usage: ./cache_sim <num_entries> <associativity> <input_file>" << endl;
+        cerr << "Usage: ./cache_sim <num_entries> "
+             << "<associativity> <input_file>" << endl;
         return 1;
     }
 
-    // Convert command line inputs into usable values
-    int num_entries = stoi(argv[1]);       // total number of cache lines
-    int associativity = stoi(argv[2]);     // lines per set
-    string input_file_name = argv[3];      // file containing memory addresses
+    // Read command line values
+    int num_entries = stoi(argv[1]);
+    int associativity = stoi(argv[2]);
+    string input_file_name = argv[3];
 
-    // Make sure values are valid
-    if (num_entries <= 0 || associativity <= 0 ||
+    // Make sure cache setup is valid
+    if (num_entries <= 0 ||
+        associativity <= 0 ||
         num_entries % associativity != 0) {
+
         cerr << "Invalid cache configuration." << endl;
         return 1;
     }
 
-    // Number of sets = total lines divided by lines per set
-    int num_sets = num_entries / associativity;
-
-    // Open the input file that contains addresses
+    // Open file containing memory addresses
     ifstream input_file(input_file_name);
 
     if (!input_file.is_open()) {
@@ -47,7 +200,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Create the required output file
+    // Create output file
     ofstream output_file("cache_sim_output");
 
     if (!output_file.is_open()) {
@@ -55,90 +208,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Build the cache as a 2D vector:
-    // first index = set number
-    // second index = line inside that set
-    // Start with everything empty (valid = false)
-    vector<vector<CacheLine>> cache(
-        num_sets,
-        vector<CacheLine>(associativity, {false, -1})
-    );
+    // Build cache object
+    Cache cache(num_entries, associativity);
 
-    // Keeps track of which line to replace next
-    // for each set when the set becomes full
-    vector<int> replacement_index(num_sets, 0);
+    unsigned long address;
 
-    int address;
-
-    // Read one memory address at a time from input file
+    // Read one address at a time
     while (input_file >> address) {
 
-        // Find which set this address belongs to
-        // Example: if num_sets = 2, addresses alternate between set 0 and set 1
-        int set_index = address % num_sets;
-
-        // Find the tag value for this address
-        // The tag is what we compare to know if the address is already cached
-        int tag = address / num_sets;
-
-        bool hit = false;
-
-        // Search every line inside the correct set
-        for (int i = 0; i < associativity; i++) {
-
-            // If the line is being used AND the tags match,
-            // then the address is already in cache
-            if (cache[set_index][i].valid &&
-                cache[set_index][i].tag == tag) {
-
-                hit = true;
-                break;
-            }
-        }
-
-        // If address was found in cache
-        if (hit) {
-            output_file << address << " : HIT" << endl;
-        }
-        else {
-            // Address was not found in cache
-            output_file << address << " : MISS" << endl;
-
-            bool inserted = false;
-
-            // First check if there is an empty spot in this set
-            for (int i = 0; i < associativity; i++) {
-
-                if (!cache[set_index][i].valid) {
-
-                    // Store the new address here
-                    cache[set_index][i].valid = true;
-                    cache[set_index][i].tag = tag;
-
-                    inserted = true;
-                    break;
-                }
-            }
-
-            // If no empty space exists, the set is full
-            // We must replace one old line
-            if (!inserted) {
-
-                int victim = replacement_index[set_index];
-
-                // Overwrite that old line with new tag
-                cache[set_index][victim].valid = true;
-                cache[set_index][victim].tag = tag;
-
-                // Move to next line for future replacement
-                // This creates a round-robin replacement pattern
-                replacement_index[set_index] =
-                    (replacement_index[set_index] + 1) % associativity;
-            }
+        // If not found, place it into cache
+        if (!cache.hit(output_file, address)) {
+            cache.update(output_file, address);
         }
     }
 
-    // Close files when finished
     input_file.close();
     output_file.close();
 
