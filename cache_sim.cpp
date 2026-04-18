@@ -46,15 +46,8 @@ private:
   unsigned num_entries;
   int num_sets;
   Entry **entries;
-
-
-
   int *replacement_index;
 };
-
-
-
-
 
 Entry::Entry() {
   valid = false;
@@ -71,9 +64,6 @@ void Entry::display(ofstream& outfile) {
           << " Tag: " << tag
           << " Ref: " << ref << endl;
 }
-
-
-
 
 // Build the cache as a 2D dynamic array.
 //
@@ -181,8 +171,6 @@ void Cache::update(ofstream& outfile, unsigned long addr) {
   replacement_index[index] = (replacement_index[index] + 1) % assoc;
 }
 
-
-
 int main(int argc, char* argv[]) {
 
 
@@ -191,12 +179,10 @@ int main(int argc, char* argv[]) {
     cout << "   ./cache_sim num_entries associativity input_file" << endl;
     return 0;
   }
-
-
+  
   unsigned entries = atoi(argv[1]);
   unsigned assoc = atoi(argv[2]);
   string input_filename = argv[3];
-
 
   if (entries == 0 || assoc == 0 || entries % assoc != 0) {
     cerr << "Invalid cache configuration." << endl;
